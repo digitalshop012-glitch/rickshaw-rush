@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Rickshaw Rush</title>
+<style>
+html,body{margin:0;height:100%;background:#222;overflow:hidden;touch-action:none;font-family:sans-serif}
+canvas{display:block;margin:0 auto;height:100%;max-width:100%}
+</style>
+</head>
+<body>
+<canvas id="c" width="360" height="640"></canvas>
+<script>
+/* ================= AdMob SETTINGS =================
+   এখন Google-এর TEST ID বসানো আছে (নিরাপদ, আয় হয় না)।
+   Play Store-এ Production-এ পাঠানোর আগে নিচের ৩টা বদলাও:
+   IS_TEST = false, আর নিজের AdMob-এর Rewarded ও Interstitial Ad Unit ID বসাও। */
+const IS_TEST = true;
+const REWARDED_ID    = 'ca-app-pub-3940256099942544/5224354917';
+const INTERSTITIAL_ID= 'ca-app-pub-3940256099942544/1033173712';
+/* ================================================= */
+
+const AdMob = (window.Capacitor && window.Capacitor.Plugins) ? window.Capacitor.Plugins.AdMob : null;
+let adsReady=false, rewardCb=null, rewardEarned=false;
+async function initAds(){
+  if(!AdMob) return;
+  try{
+    await AdMob.initialize({initializeForTesting: IS_TEST});
+    adsReady=true;
+    AdMob.addListener('onRewardedVideoAdReward',()=>{rewardEarned=true});
+    AdMob.addListener('onRewardedVideoAdDismissed',()=>{
+      if(rewardEarned&&rewardCb){const f=rewardCb;rewardCb=null;rewardEarned=false;f()}
+      rewardCb=null;loadRewarded();
+    });
+    AdMob.addListener('onInterstitialAdDismissed',()=>loadInterstitial());
+    loadRewarded();loadInterstitial();
+  }catch(e){}
+}
+function loadRewarded(){try{AdMob.prepareRewardVideoAd({adId:REWARDED_ID,isTesting:IS_TEST})}catch(e){}}
+function loadInterstitial(){try{AdMob.prepareInterstitial({adId:INTERSTITIAL_ID,isTesting:IS_TEST})}catch(e){}}
+async function showRewardedAd(done){
+  if(!AdMob||!adsReady){done();return} /* ব্রাউজারে টেস্টের জন্য সরাসরি রিভাইভ */
+  rewardCb=done;rewardEarned=false;
+  try{await AdMob.showRewardVideoAd()}catch(e){rewardCb=null;loadRewarded()}
+}
+async function maybeInterstitial(){
+  if(!AdMob||!adsReady)return;
+  if(deaths%3===0){try{await AdMob.showInterstitial()}catch(e){}}
+}
+initAds();
+
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+const W=360,H=640,LANES=[90,180,270];
+let state='menu',lane=1,px=180,score=0,coins=0,speed=4,obs=[],cns=[],t=0,revived=false,deaths=0;
+let best=0;try{best=+localStorage.getItem('rr_best')||0}catch(e){}
+const TYPES=[{e:'🐄',s:46},{e:'🚌',s:56},{e:'🛵',s:40},{e:'🚧',s:44},{e:'🛺',s:44}];
+function reset(){lane=1;px=180;score=0;coins=0;speed=4;obs=[];cns=[];t=0;revived=false;state='play'}
+function move(d){if(state!=='play')return;lane=Math.max(0,Math.min(2,lane+d))}
+let sx=0;
+cv.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;e.preventDefault()},{passive:false});
+cv.addEventListener('touchend',e=>{
+ const dx=e.changedTouches[0].clientX-sx;
+ if(state==='play'){ if(Math.abs(dx)>25) move(dx>0?1:-1); else { const r=cv.getBoundingClientRect(); move((e.changedTouches[0].clientX-r.left)>r.width/2?1:-1);} }
+ else tap(e.changedTouches[0].clientX,e.changedTouches[0].clientY);
+ e.preventDefault();
+},{passive:false});
+cv.addEventListener('mousedown',e=>{ if(state==='play'){const r=cv.getBoundingClientRect();move((e.clientX-r.left)>r.width/2?1:-1)} else tap(e.clientX,e.clientY)});
+addEventListener('keydown',e=>{ if(e.key==='ArrowLeft')move(-1); if(e.key==='ArrowRight')move(1); if(e.key===' '&&state!=='play')reset()});
+function tap(cx,cy){
+ const r=cv.getBoundingClientRect(),y=(cy-r.top)/r.height*H;
+ if(state==='menu')reset();
+ else if(state==='over'){
+  if(!revived&&y>400&&y<460){ showRewardedAd(()=>{revived=true;obs=obs.filter(o=>o.y<300||o.y>520);state='play'}) }
+  else if(y>=470&&y<540) reset();
+ }
+}
+function spawn(){
+ const l=Math.floor(Math.random()*3);
+ if(Math.random()<0.3){cns.push({l,y:-30});return}
+ obs.push({l,y:-60,ty:TYPES[Math.floor(Math.random()*TYPES.length)]});
+}
+function update(){
+ if(state!=='play')return;
+ t++;speed=4+Math.min(8,score/400);
+ px+=(LANES[lane]-px)*0.25;
+ if(t%Math.max(18,50-Math.floor(score/80))===0)spawn();
+ score+=speed/10;
+ obs.forEach(o=>o.y+=speed);cns.forEach(c=>c.y+=speed);
+ obs=obs.filter(o=>o.y<700);cns=cns.filter(c=>c.y<700);
+ for(const o of obs){ if(Math.abs(LANES[o.l]-px)<34&&Math.abs(o.y-520)<44){gameOver();return} }
+ cns=cns.filter(c=>{ if(Math.abs(LANES[c.l]-px)<34&&Math.abs(c.y-520)<36){coins++;score+=10;return false} return true });
+}
+function gameOver(){
+ state='over';deaths++;
+ if(score>best){best=Math.floor(score);try{localStorage.setItem('rr_best',best)}catch(e){}}
+ if(navigator.vibrate)navigator.vibrate(120);
+ maybeInterstitial();
+}
+function txt(s,x,y,sz,col='#fff',al='center'){g.font='bold '+sz+'px sans-serif';g.fillStyle=col;g.textAlign=al;g.fillText(s,x,y)}
+function draw(){
+ g.fillStyle='#3a3a3a';g.fillRect(0,0,W,H);
+ g.fillStyle='#2e7d32';g.fillRect(0,0,30,H);g.fillRect(W-30,0,30,H);
+ g.fillStyle='#fff';
+ for(let i=0;i<2;i++)for(let y=-40+((t*speed)%80);y<H;y+=80)g.fillRect(135+i*90,y,6,40);
+ g.textBaseline='middle';
+ cns.forEach(c=>txt('🪙',LANES[c.l],c.y,32));
+ obs.forEach(o=>txt(o.ty.e,LANES[o.l],o.y,o.ty.s));
+ txt('🛺',px,520,48);
+ txt('Score '+Math.floor(score),12,24,20,'#fff','left');
+ txt('🪙 '+coins,W-12,24,20,'#ffd54f','right');
+ if(state==='menu'){
+  g.fillStyle='rgba(0,0,0,.65)';g.fillRect(0,0,W,H);
+  txt('🛺 Rickshaw Rush',W/2,200,34,'#ffb300');
+  txt('Dodge cows, buses & traffic!',W/2,250,17);
+  txt('Tap left / right to switch lanes',W/2,280,15,'#ccc');
+  txt('▶ TAP TO PLAY',W/2,380,28,'#69f0ae');
+  txt('Best: '+best,W/2,440,18);
+ }
+ if(state==='over'){
+  g.fillStyle='rgba(0,0,0,.75)';g.fillRect(0,0,W,H);
+  txt('💥 Game Over',W/2,170,34,'#ff5252');
+  txt('Score: '+Math.floor(score),W/2,230,24);
+  txt('Best: '+best,W/2,265,18,'#ffd54f');
+  txt('🪙 Coins: '+coins,W/2,300,18,'#ffd54f');
+  if(!revived){g.fillStyle='#43a047';g.fillRect(70,405,220,50);txt('▶ Watch Ad to Revive',W/2,430,18)}
+  g.fillStyle='#1e88e5';g.fillRect(70,475,220,50);txt('Play Again',W/2,500,20);
+ }
+}
+(function loop(){update();draw();requestAnimationFrame(loop)})();
+</script>
+</body>
+</html>

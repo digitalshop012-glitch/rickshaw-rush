@@ -1,0 +1,8 @@
+{
+  "appId": "com.rickshawrush.game",
+  "appName": "Rickshaw Rush",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#222222"
+  }
+}

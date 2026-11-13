@@ -1,0 +1,12 @@
+{
+  "name": "rickshaw-rush",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rickshaw Rush - endless auto-rickshaw runner",
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor-community/admob": "^8.0.0"
+  }
+}
